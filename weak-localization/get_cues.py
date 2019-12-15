@@ -160,7 +160,7 @@ def generate_pickle(path_to_dataset):
             path_cues_dict[img_file_path] = cues
 
     with open("localization_cues.pickle", "wb") as f:
-        pickle.dumps(path_cues_dict, f)
+        pickle.dump(path_cues_dict, f)
 
     print("generate cues pickle")
 
