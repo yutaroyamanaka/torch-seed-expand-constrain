@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 from torch.autograd import Variable
-from krahenbuhl2013 import CRF
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels, create_pairwise_bilateral, create_pairwise_gaussian
 
@@ -25,7 +24,7 @@ def seed_loss_layer(fc8_sec_softmax, cues):
 def expand_loss_layer(fc8_sec_softmax, labels, height, width, num_class):
     """
     :param fc8_sec_softmax: (batch_size, num_class + 1 (including background), height // 8, width // 8)
-    :param labels: (1, 1, 1, num_class(including background)) labels[0, 0, 0] shows one-hot vector of classification inference.
+    :param labels: (batch_size, 1, 1, num_class(including background)) labels[0, 0, 0] shows one-hot vector of classification inference.
     :param height: one eighth of input image height
     :param width: one eighth of input image width
     :param num_class: number of classes including background
@@ -93,20 +92,17 @@ def constrain_loss_layer(fc8_sec_softmax, crf_result):
     return loss
 
 
-def crf_layer(fc8_sec_softmax, downscaled_tensors, iternum):
+def crf_layer(fc8_sec_softmax, downscaled, iternum):
     """
     :param fc8_sec_softmax: (batch_size, num_class(including background), height // 8, width // 8)
-    :param downscaled_tensors: (batch_size, 3 (RGB), height, width)
+    :param downscaled: (batch_size, height, width, 3 (RGB))
     :param iternum: times that calculation CRF inference repeatedly
     :return: crf inference results
     """
 
     unary = np.transpose(np.asarray(fc8_sec_softmax.cpu().data), [0, 2, 3, 1])
     mean_pixel = np.asarray([104.0, 117.0, 123.0])
-
-    imgs = np.asarray(downscaled_tensors.cpu().data)
-
-    imgs = np.transpose(np.round(imgs), [0, 2, 3, 1])  # (batch_size, height, width, 3(RGB))
+    imgs = downscaled
     N = unary.shape[0]  # batch_size
     result = np.zeros(unary.shape)  # (batch_size, height, width, num_class)
 

@@ -101,7 +101,7 @@ def check_net(n_class, height, width):
 
     inputs = Variable(torch.zeros([1, 3, height, width]))
     out = net(inputs)
-    print(out[0].shape)
+    print(out[3].shape) # (batch_size, num_class, height, width)
 
 
 if __name__ == '__main__':

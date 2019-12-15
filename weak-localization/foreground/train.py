@@ -46,17 +46,16 @@ def train():
         print('Epoch {}/{}'.format(epoch + 1, epochs))
         print('-------------')
 
-        # epochごとの訓練と検証のループ
+        # train and validation per epoch
         for phase in ['train', 'val']:
             if phase == 'train':
-                net.train()  # モデルを訓練モードに
+                net.train()  # training
             else:
-                net.eval()  # モデルを検証モードに
+                net.eval()  # inference
 
-            epoch_loss = 0.0  # epochの損失和
-            epoch_corrects = 0  # epochの正解数
+            epoch_loss = 0.0  # loss sum per epoch
+            epoch_corrects = 0  # number of correct answers
 
-            # 未学習時の検証性能を確かめるため、epoch=0の訓練は省略
             if (epoch == 0) and (phase == 'train'):
                 continue
 
@@ -66,24 +65,24 @@ def train():
                     inputs = batch["image"].to(device)
                     labels = batch["target"].to(device)
 
-                    # optimizerを初期化
+                    # optimizer init
                     optimizer.zero_grad()
 
-                    # 順伝搬（forward）計算
+                    # forward
                     with torch.set_grad_enabled(phase == 'train'):
                         outputs = net(inputs)
-                        loss = criterion(outputs, labels)  # 損失を計算
-                        _, preds = torch.max(outputs, 1)  # ラベルを予測
+                        loss = criterion(outputs, labels)  #
+                        _, preds = torch.max(outputs, 1)
                         print(preds)
                         loss.backward()
                         optimizer.step()
 
-                        # 結果の計算
-                        epoch_loss += loss.item() * inputs.size(0)  # lossの合計を更新
-                        # 正解数の合計を更新
+                        # result calculation
+                        epoch_loss += loss.item() * inputs.size(0)  # update loss sum
+                        # update number of correct answers
                         epoch_corrects += torch.sum(preds == labels.data)
 
-                        # epochごとのlossと正解率を表示
+                        # show loss and accuracy per epoch
                         epoch_loss = epoch_loss / len(train_loader.dataset)
                         epoch_acc = epoch_corrects.double(
                         ) / len(train_loader.dataset)
@@ -93,20 +92,17 @@ def train():
             elif phase == 'val':
 
                 for iter, batch in enumerate(val_loader):
-                    # GPUが使えるならGPUにデータを送る
+
                     inputs = batch["image"].to(device)
                     labels = batch["target"].to(device)
 
                     outputs = net(inputs)
-                    loss = criterion(outputs, labels)  # 損失を計算
-                    _, preds = torch.max(outputs, 1)  # ラベルを予測
+                    loss = criterion(outputs, labels)
+                    _, preds = torch.max(outputs, 1)
 
-                    # 結果の計算
-                    epoch_loss += loss.item() * inputs.size(0)  # lossの合計を更新
-                    # 正解数の合計を更新
+                    epoch_loss += loss.item() * inputs.size(0)
                     epoch_corrects += torch.sum(preds == labels.data)
 
-                    # epochごとのlossと正解率を表示
                     epoch_loss = epoch_loss / len(val_loader.dataset)
                     epoch_acc = epoch_corrects.double(
                     ) / len(val_loader.dataset)
