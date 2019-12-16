@@ -2,6 +2,7 @@ from background.model import VggBackgroundPretrained
 from foreground.model import VggForegroundPretrained
 import torch
 from torchvision import transforms
+import torch.nn.functional as F
 import numpy as np
 from scipy.ndimage import median_filter
 import os
@@ -11,7 +12,7 @@ import sys
 
 width = 320
 height = 240
-n_class = 3
+n_class = 3  # not including background
 
 # network for getting foreground cues
 bg_net = VggBackgroundPretrained(width=width, height=height, n_class=n_class)
@@ -43,6 +44,18 @@ transform = transforms.Compose([
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ])
 
+def get_fg_labels(inputs):
+    """
+    :param inputs: normalized tensor
+    :return: numpy-array of class labels whose probability is more than 0.4
+    """
+
+    h = fg_net(inputs)
+    probs = F.softmax(h, dim=1).squeeze()
+    probs = probs.cpu().detach().numpy()
+    labels = np.where(probs > 0.4)
+
+    return labels[0]
 
 def get_fg_cues(inputs):
     """
@@ -157,7 +170,15 @@ def generate_pickle(path_to_dataset):
 
             # cues which has no conflict
             cues = solve_conflicts(fg_cues, bg_cues, width // 8, height // 8)
-            path_cues_dict[img_file_path] = cues
+
+            # foreground classes that network prediction probability is more than 0.4
+            labels = get_fg_labels(inputs)
+
+            prefix = os.path.splitext(os.path.basename(img_file_path))[0]
+            cues_key = prefix + "_cues"
+            labels_key = prefix + "_labels"
+            path_cues_dict[cues_key] = cues
+            path_cues_dict[labels_key] = labels
 
     with open("localization_cues.pickle", "wb") as f:
         pickle.dump(path_cues_dict, f)

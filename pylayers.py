@@ -12,7 +12,6 @@ def seed_loss_layer(fc8_sec_softmax, cues):
     :param cues: (batch_size, num_class + 1 (including background), height // 8, width // 8)
     :return: seeding loss
     """
-
     probs = fc8_sec_softmax
     labels = cues
     count = labels.sum(3).sum(2).sum(1)
@@ -45,7 +44,7 @@ def expand_loss_layer(fc8_sec_softmax, labels, height, width, num_class):
     probs_max, _ = torch.max(torch.max(probs, 3)[0], 2)
 
     q_fg = 0.996
-    probs_sort, _ = torch.sort(probs.contiguous().view(-1, num_class, height * width), dim=2)
+    probs_sort, _ = torch.sort(probs.contiguous().view(-1, num_class - 1, height * width), dim=2)
     weights = np.array([q_fg ** i for i in range(height * width - 1, -1, -1)])[None, None, :]
     Z_fg = np.sum(weights)
     weights_var = Variable(torch.from_numpy(weights).cuda()).squeeze().float()
@@ -101,16 +100,14 @@ def crf_layer(fc8_sec_softmax, downscaled, iternum):
     """
 
     unary = np.transpose(np.asarray(fc8_sec_softmax.cpu().data), [0, 2, 3, 1])
-    mean_pixel = np.asarray([104.0, 117.0, 123.0])
     imgs = downscaled
     N = unary.shape[0]  # batch_size
     result = np.zeros(unary.shape)  # (batch_size, height, width, num_class)
 
     for i in range(N):
-        d = dcrf.DenseCRF(imgs[i].shape[1], imgs[i].shape[0], unary[i].shape[2])  # DenseCRF(width, height, num_class)
+        d = dcrf.DenseCRF2D(imgs[i].shape[1], imgs[i].shape[0], unary[i].shape[2])  # DenseCRF(width, height, num_class)
         # set unary potentials
-        U = unary_from_labels(-unary[i].ravel().astype('float32'), unary[i].shape[2], gt_prob=0.7, zero_unsure=False)
-        d.setUnaryEnergy(U)
+        d.setUnaryEnergy(unary[i].reshape(unary[i].shape[2], unary[i].shape[0]*unary[i].shape[1]))
 
         # This creates the color-independent features and then add them to the CRF
         feats = create_pairwise_gaussian(sdims=(3, 3), shape=imgs[i].shape[:2])
@@ -120,12 +117,12 @@ def crf_layer(fc8_sec_softmax, downscaled, iternum):
 
         # This creates the color-dependent features and then add them to the CRF
         feats = create_pairwise_bilateral(sdims=(80, 80), schan=(13, 13, 13),
-                                          img=imgs[i], chdim=2)
+                                          img=imgs[i].cpu().numpy(), chdim=2)
         d.addPairwiseEnergy(feats, compat=10,
                             kernel=dcrf.DIAG_KERNEL,
                             normalization=dcrf.NORMALIZE_SYMMETRIC)
 
-        Q = d.inference(iternum)
+        Q = np.asarray(d.inference(iternum))
         result[i] = Q.reshape((imgs[i].shape[0], imgs[i].shape[1], unary[i].shape[2]))
 
     result = np.transpose(result, [0, 3, 1, 2])  # (batch_size, num_class, height, width)

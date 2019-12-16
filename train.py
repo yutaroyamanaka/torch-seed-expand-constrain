@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import os
 import torch.optim as optim
 from torchvision import transforms
@@ -29,7 +30,7 @@ train_data = ImageDataset(root, width=width, height=height, transform=transforms
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ]))
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=4)
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=0)
 
 optimizer = optim.SGD(net.parameters(), lr=lr, momentum=momentum)
 
@@ -38,21 +39,24 @@ path_to_localization_cues = "./weak-localization/localization_cues.pickle"
 with open(path_to_localization_cues, "rb") as f:
     dict_src = pickle.load(f)
 
+net = net.cuda()
+num_gpu = list(range(torch.cuda.device_count()))
+net = nn.DataParallel(net, device_ids=num_gpu)
+
 
 def train():
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    net.to(device)
 
     for epoch in range(epochs):
         print('Epoch {}/{}'.format(epoch + 1, epochs))
         print('-------------')
 
         for iter, batch in enumerate(train_loader):
-            inputs = batch["image"].to(device)
-            path = batch["path"].to(device)
-            downscaled = batch["downscaled"].to(device)
+            inputs = batch["image"].cuda()
+            target = batch["target"].cuda()
+            path = batch["path"]
+            downscaled = batch["downscaled"]
 
-            labels, dense_gt = get_data_from_batch(len(batch), path)
+            labels, dense_gt = get_data_from_batch(len(batch["image"]), path, target)
 
             # optimizer init
             optimizer.zero_grad()
@@ -68,28 +72,34 @@ def train():
             fc8_sec_softmax = probs / torch.sum(probs, dim=1, keepdim=True)
 
             loss_s = seed_loss_layer(fc8_sec_softmax, dense_gt)
-            loss_e = expand_loss_layer(fc8_sec_softmax, labels)
+            loss_e = expand_loss_layer(fc8_sec_softmax, labels, height//8, width//8, n_class)
             crf_result = crf_layer(fc8_sec_softmax, downscaled, 10)
             loss_c = constrain_loss_layer(fc8_sec_softmax, crf_result)
 
-            print(loss_s.cpu().data[0], loss_e.cpu().data[0], loss_c.cpu().data[0])
+            print(loss_s.cpu().data.item(), loss_e.cpu().data.item(), loss_c.cpu().item())
             loss = loss_s + loss_e + loss_c
 
             loss.backward()
             optimizer.step()
 
 
-def get_data_from_batch(batch_len, img_path):
+def get_data_from_batch(batch_len, img_path, target):
 
-    dense_gt = np.zeros((height // 8, width // 8, n_class, len(batch_len)))
+    dense_gt = np.zeros((height // 8, width // 8, n_class, batch_len))
     labels = np.zeros((batch_len, 1, 1, n_class))
 
     for i in range(batch_len):
-        img_name = os.path.basename(img_path[i])  # ./dataset/train/label_index/*.png
-        cues_key = "./" + img_name  # cues object keys start from "./"
+        prefix = os.path.splitext(os.path.basename(img_path[i]))[0]
+
+        cues_key = prefix + "_cues"
         cues_i = dict_src[cues_key]
 
-        labels_i = np.unique(cues_i[0]).tolist()
+        labels_key = prefix + "_labels"
+        labels_i = dict_src[labels_key]
+
+        labels_i = labels_i.tolist()  # labels_i doesn't contain background
+        labels_i.append(-1)
+
         for lab in labels_i:
             if lab == -1:  # background
                 labels[i, 0, 0, 0] = 1
@@ -111,10 +121,12 @@ def get_data_from_batch(batch_len, img_path):
         for lab in labels_i:
             if lab == -1: # background
                 gt_temp_trues[:, :, 0] = (gt_temp == 0).astype('float')
+            else:
+                gt_temp_trues[:, :, lab+1] = (gt_temp == (lab + 1)).astype('float')
 
         dense_gt[:, :, :, i] = gt_temp_trues
 
-    labels = Variable(labels.cuda())
+    labels = Variable(torch.from_numpy(labels).cuda())
     dense_gt = dense_gt.transpose((3, 2, 0, 1))
     dense_gt = Variable(torch.from_numpy(dense_gt).float()).cuda()
 
