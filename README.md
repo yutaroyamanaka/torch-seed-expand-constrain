@@ -12,6 +12,18 @@ My contributions are summarized as follows.
 2. Some people reported that they had some errors in installing CRF Python wrapper. So, I replaced it with <a href="https://github.com/lucasb-eyer/pydensecrf">pydensecrf</a>.
 3. I modified previous codes in order to train segmentation network in not only PASACL VOC2012 but also our own datasets.
 
+### Assumed Dataset Directory Structure
+
+```
+dataset/train
+├── 0 (label 0)
+│   └── 1.png
+├── 1 (label 1)
+│   └── 1.png
+└── 2 (label 2)
+    └── 1.png
+```
+
 ### Procedure
 
 ##### Install Required Packages
@@ -44,7 +56,7 @@ $ python get_cues.py path_to_dataset_root
 ##### Train Network for weakly supervised segmentation
 
 ```
-$ python inference.py --height 240 --width 320 --num_class 4 --image ./dataset/train/0/car_1.jpg --weight ./segmentation-weights.pth
+$ python inference.py --height 240 --width 320 --num_class 4 --image ./dataset/train/0/1.jpg --weight ./segmentation-weights.pth
 ```
 
 ### Acknowledgement
