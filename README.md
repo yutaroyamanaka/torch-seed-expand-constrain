@@ -32,14 +32,14 @@ dataset/train
 $ pip install -r requirements.txt
 ```
 
-##### Train Network for localization foreground class cues
+##### Train Network for Localization Foreground Class Cues
 
 ```
 $ cd weak-localization/foreground
 $ python train.py
 ```
 
-##### Train Network for localization background cues
+##### Train Network for Localization Background Cues
 
 ```
 $ cd weak-localization/background
@@ -53,7 +53,13 @@ $ cd weak-localization
 $ python get_cues.py path_to_dataset_root
 ```
 
-##### Train Network for weakly supervised segmentation
+##### Train Network for Weakly Supervised Segmentation
+
+```
+$ python train.py
+```
+
+##### Inference
 
 ```
 $ python inference.py --height 240 --width 320 --num_class 4 --image ./dataset/train/0/1.jpg --weight ./segmentation-weights.pth
