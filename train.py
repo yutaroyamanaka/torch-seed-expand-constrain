@@ -10,6 +10,7 @@ import pickle
 import numpy as np
 from torch.autograd import Variable
 from pylayers import seed_loss_layer, expand_loss_layer, constrain_loss_layer, crf_layer
+from tensorboardX import SummaryWriter
 
 root = "./dataset/"
 width = 320
@@ -18,10 +19,10 @@ height = 240
 # foreground classes and background
 # background label is 0.
 n_class = 4
-batch_size = 32
+batch_size = 10
 lr = 1e-4
 momentum = 0.9
-epochs = 50
+epochs = 20
 
 net = MSC(n_class=n_class, height=height, width=width)
 net.train()
@@ -43,6 +44,7 @@ net = net.cuda()
 num_gpu = list(range(torch.cuda.device_count()))
 net = nn.DataParallel(net, device_ids=num_gpu)
 
+writer = SummaryWriter("runs/exp-1")
 
 def train():
 
@@ -52,11 +54,10 @@ def train():
 
         for iter, batch in enumerate(train_loader):
             inputs = batch["image"].cuda()
-            target = batch["target"].cuda()
             path = batch["path"]
             downscaled = batch["downscaled"]
 
-            labels, dense_gt = get_data_from_batch(len(batch["image"]), path, target)
+            labels, dense_gt = get_data_from_batch(len(batch["image"]), path)
 
             # optimizer init
             optimizer.zero_grad()
@@ -79,11 +80,18 @@ def train():
             print(loss_s.cpu().data.item(), loss_e.cpu().data.item(), loss_c.cpu().item())
             loss = loss_s + loss_e + loss_c
 
+            writer.add_scalar('loss/loss_s', loss_s.cpu().data.item(), (epoch + 1) * iter)
+            writer.add_scalar('loss/loss_e', loss_e.cpu().data.item(), (epoch + 1) * iter)
+            writer.add_scalar('loss/loss_c', loss_c.cpu().data.item(), (epoch + 1) * iter)
+            writer.add_scalar('loss/loss_total', loss, (epoch + 1) * iter)
+
             loss.backward()
             optimizer.step()
 
+    writer.close()
 
-def get_data_from_batch(batch_len, img_path, target):
+
+def get_data_from_batch(batch_len, img_path):
 
     dense_gt = np.zeros((height // 8, width // 8, n_class, batch_len))
     labels = np.zeros((batch_len, 1, 1, n_class))
@@ -98,31 +106,21 @@ def get_data_from_batch(batch_len, img_path, target):
         labels_i = dict_src[labels_key]
 
         labels_i = labels_i.tolist()  # labels_i doesn't contain background
-        labels_i.append(-1)
 
         for lab in labels_i:
-            if lab == -1:  # background
-                labels[i, 0, 0, 0] = 1
-            else:
-                labels[i, 0, 0, lab+1] = 1
+            labels[i, 0, 0, lab] = 1
 
         gt_temp = np.zeros((height // 8, width // 8))
 
         for idx, class_index in enumerate(cues_i[0]): # cues_i is (label_array, height_array, width_array)
-            if class_index == -1: # background
-                gt_temp[cues_i[1, idx], cues_i[2, idx]] = 0  # defines background as 0 label.
-            else: # foreground classes
-                gt_temp[cues_i[1, idx], cues_i[2, idx]] = (cues_i[0, idx] + 1)
+            gt_temp[cues_i[1, idx], cues_i[2, idx]] = cues_i[0, idx]
 
         gt_temp = gt_temp.astype('float')
 
         gt_temp_trues = np.zeros((height // 8, width // 8, n_class))
 
         for lab in labels_i:
-            if lab == -1: # background
-                gt_temp_trues[:, :, 0] = (gt_temp == 0).astype('float')
-            else:
-                gt_temp_trues[:, :, lab+1] = (gt_temp == (lab + 1)).astype('float')
+            gt_temp_trues[:, :, lab] = (gt_temp == lab).astype('float')
 
         dense_gt[:, :, :, i] = gt_temp_trues
 

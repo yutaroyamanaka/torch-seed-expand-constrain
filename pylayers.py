@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch.autograd import Variable
 import pydensecrf.densecrf as dcrf
-from pydensecrf.utils import unary_from_labels, create_pairwise_bilateral, create_pairwise_gaussian
+from pydensecrf.utils import unary_from_softmax, create_pairwise_bilateral, create_pairwise_gaussian
 
 min_prob = 0.0001
 
@@ -99,33 +99,30 @@ def crf_layer(fc8_sec_softmax, downscaled, iternum):
     :return: crf inference results
     """
 
-    unary = np.transpose(np.asarray(fc8_sec_softmax.cpu().data), [0, 2, 3, 1])
+    unary = np.asarray(fc8_sec_softmax.cpu().data)
     imgs = downscaled
     N = unary.shape[0]  # batch_size
-    result = np.zeros(unary.shape)  # (batch_size, height, width, num_class)
+    result = np.zeros(unary.shape)  # (batch_size, num_class, height, width)
 
     for i in range(N):
-        d = dcrf.DenseCRF2D(imgs[i].shape[1], imgs[i].shape[0], unary[i].shape[2])  # DenseCRF(width, height, num_class)
+        d = dcrf.DenseCRF2D(imgs[i].shape[1], imgs[i].shape[0], unary[i].shape[0])  # DenseCRF(width, height, num_class)
+
+        # get unary
+        U = unary_from_softmax(unary[i])
         # set unary potentials
-        d.setUnaryEnergy(unary[i].reshape(unary[i].shape[2], unary[i].shape[0]*unary[i].shape[1]))
+        d.setUnaryEnergy(U)
 
         # This creates the color-independent features and then add them to the CRF
-        feats = create_pairwise_gaussian(sdims=(3, 3), shape=imgs[i].shape[:2])
-        d.addPairwiseEnergy(feats, compat=3,
-                            kernel=dcrf.DIAG_KERNEL,
-                            normalization=dcrf.NORMALIZE_SYMMETRIC)
+        d.addPairwiseGaussian(sxy=(3, 3), compat=3, kernel=dcrf.DIAG_KERNEL,
+                              normalization=dcrf.NORMALIZE_SYMMETRIC)
 
-        # This creates the color-dependent features and then add them to the CRF
-        feats = create_pairwise_bilateral(sdims=(80, 80), schan=(13, 13, 13),
-                                          img=imgs[i].cpu().numpy(), chdim=2)
-        d.addPairwiseEnergy(feats, compat=10,
-                            kernel=dcrf.DIAG_KERNEL,
-                            normalization=dcrf.NORMALIZE_SYMMETRIC)
+        img = imgs[i].cpu().numpy()
+        d.addPairwiseBilateral(sxy=(80, 80), srgb=(13, 13, 13), rgbim=img, compat=10, kernel=dcrf.DIAG_KERNEL, normalization=dcrf.NORMALIZE_SYMMETRIC)
 
-        Q = np.asarray(d.inference(iternum))
-        result[i] = Q.reshape((imgs[i].shape[0], imgs[i].shape[1], unary[i].shape[2]))
+        Q = d.inference(iternum)
+        proba = np.asarray(Q)
+        result[i] = np.reshape(proba, (unary[i].shape[0], img.shape[0], img.shape[1]))
 
-    result = np.transpose(result, [0, 3, 1, 2])  # (batch_size, num_class, height, width)
     result[result < min_prob] = min_prob
     result = result / np.sum(result, axis=1, keepdims=True)
 

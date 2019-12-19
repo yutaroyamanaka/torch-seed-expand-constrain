@@ -47,15 +47,15 @@ transform = transforms.Compose([
 def get_fg_labels(inputs):
     """
     :param inputs: normalized tensor
-    :return: numpy-array of class labels whose probability is more than 0.4
+    :return: numpy-array of class labels whose probability is more than 0.25
     """
 
     h = fg_net(inputs)
     probs = F.softmax(h, dim=1).squeeze()
     probs = probs.cpu().detach().numpy()
-    labels = np.where(probs > 0.4)
+    labels = np.where(probs > 0.25)
 
-    return labels[0]
+    return labels[0] + 1  # label 0 is background
 
 def get_fg_cues(inputs):
     """
@@ -77,7 +77,7 @@ def get_fg_cues(inputs):
     for i in range(n_class):
         w = fg_params[0][i].detach().cpu().numpy()
         heat_maps[i, :, :] = np.sum(h[0] * w[:, None, None], axis=0)
-        localization[i, :, :] = heat_maps[i, :, :] > 0.7 * np.max(heat_maps[i])
+        localization[i, :, :] = heat_maps[i, :, :] > 0.95 * np.max(heat_maps[i])
 
     return localization
 
@@ -103,16 +103,19 @@ def get_bg_cues(inputs):
     return localization
 
 
-def solve_conflicts(fg_cues, bg_cues, full_width, full_height):
+def solve_conflicts(fg_cues, bg_cues, labels, full_width, full_height):
     """
     :param fg_cues: mask of foreground cues
     :param bg_cues: mask of background cues
+    :param labels: foreground classes having high probabilities
     :return: cues array to save in pickle
     """
 
     classes = []
     cols = []
     rows = []
+    labels = labels.tolist()
+
     # number of cues equivalent to each foreground class
     stack_nums = np.count_nonzero(fg_cues, axis=(1, 2))
     for h in range(full_height):
@@ -121,24 +124,24 @@ def solve_conflicts(fg_cues, bg_cues, full_width, full_height):
             fg_temp_indexes = []
             for c in range(fg_cues.shape[0]):
                 if fg_cues[c][h][w]:
-                    fg_temp_indexes.append(c)
+                    fg_temp_indexes.append(c+1)  # label 0 is background
 
             # if there is foreground cues in the pixel
-            if len(fg_temp_indexes):
+            if len(fg_temp_indexes) > 0:
                 # solve class which has minimum stack_nums
                 min_nums = full_height * full_width
-                min_index = -1
+                min_index = 0
                 for fg_temp_index in fg_temp_indexes:
-                    if stack_nums[fg_temp_index] < min_nums:
+                    if stack_nums[fg_temp_index-1] < min_nums and fg_temp_index in labels:
                         min_index = fg_temp_index
-                        min_nums = stack_nums[fg_temp_index]
+                        min_nums = stack_nums[fg_temp_index-1]
 
                 classes.append(min_index)
                 cols.append(h)
                 rows.append(w)
             # if there is background cue and no foreground cues
             elif bg_cues[h][w]:
-                classes.append(-1)  # bg_cue ravel is defined -1
+                classes.append(0)  # bg_cue ravel is defined 0
                 cols.append(h)
                 rows.append(w)
 
@@ -162,6 +165,9 @@ def generate_pickle(path_to_dataset):
             inputs = image
             inputs = inputs.view(1, 3, height, width)
 
+            # foreground classes that network prediction probability is more than 0.25
+            labels = get_fg_labels(inputs)
+
             # get fg_cues
             fg_cues = get_fg_cues(inputs)
 
@@ -169,10 +175,7 @@ def generate_pickle(path_to_dataset):
             bg_cues = get_bg_cues(inputs)
 
             # cues which has no conflict
-            cues = solve_conflicts(fg_cues, bg_cues, width // 8, height // 8)
-
-            # foreground classes that network prediction probability is more than 0.4
-            labels = get_fg_labels(inputs)
+            cues = solve_conflicts(fg_cues, bg_cues, labels, width // 8, height // 8)
 
             prefix = os.path.splitext(os.path.basename(img_file_path))[0]
             cues_key = prefix + "_cues"

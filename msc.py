@@ -3,6 +3,18 @@ import torch.nn as nn
 import numpy as np
 from torch.autograd import Variable
 from torchvision import models
+import argparse
+
+
+def args_solve():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--height', type=int)
+    parser.add_argument('--width', type=int)
+    parser.add_argument('--num_class', type=int, help="number of classes including background")
+
+    args = parser.parse_args()
+    return args
 
 
 class MSC(nn.Module):
@@ -14,7 +26,7 @@ class MSC(nn.Module):
         self.n_class = n_class
 
         # adjust model parameters according to image input size.
-        # For your information, my dataset image has 240 * 320 pixels.
+        # For your information, my dataset image has 240(height) * 320(width) pixels.
         self.net = nn.Sequential(
             nn.Conv2d(3, 64, (3, 3), (1, 1), (1, 1)),
             nn.ReLU(),
@@ -105,8 +117,6 @@ def check_net(n_class, height, width):
 
 
 if __name__ == '__main__':
-    # python msc.py
-    n_class = 4
-    height = 240
-    width = 320
-    check_net(n_class, height, width)
+    # python msc.py --height 240 --width 320 --num_class 4
+    args = args_solve()
+    check_net(args.num_class, args.height, args.width)
