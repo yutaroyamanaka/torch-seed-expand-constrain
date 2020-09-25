@@ -2,5 +2,5 @@ torch==1.1.0
 torchvision==0.2.2
 tensorboard==2.0.2
 tensorboardX==1.9
-tensorflow==2.0.0
+tensorflow==2.0.3
 pydensecrf==1.0rc3
